@@ -46,7 +46,7 @@ async function run() {
 
     // use verify admin after verify token
     const verifyAdmin = async (req, res, next) => {
-      const email = req.decoded.email;
+      const email = req.decoded.userInfo;
       const query = { email: email };
       const user = await userCollection.findOne(query);
       const isAdmin = user?.role === "admin";
@@ -59,6 +59,7 @@ async function run() {
     // JWT related apis
     app.post("/jwt", async (req, res) => {
       const user = req.body;
+      // console.log({ user });
       const token = jwt.sign(user, process.env.ACCES_TOKEN_SECRET, {
         expiresIn: "10h",
       });
@@ -66,17 +67,16 @@ async function run() {
     });
 
     // users related apis
-    app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
+    app.get("/users", verifyToken, async (req, res) => {
       const result = await userCollection.find().toArray();
       res.send(result);
     });
 
     app.get("/users/admin/:email", verifyToken, async (req, res) => {
       const email = req.params.email;
-      // console.log(email, req.decoded); //second output: undefined
-      // if (email !== req.decoded.email) {
-      //   return res.status(403).send({ message: "forbidden access" });
-      // }
+      if (email !== req.decoded.userInfo) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
       const query = { email: email };
       const user = await userCollection.findOne(query);
       let admin = false;
@@ -124,6 +124,12 @@ async function run() {
       const result = await menuCollection.find().toArray();
       res.send(result);
     });
+
+    app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
+      const result = await menuCollection.insertOne(req.body);
+      res.send(result);
+    });
+
     app.get("/reviews", async (req, res) => {
       const result = await reviewsCollection.find().toArray();
       res.send(result);
