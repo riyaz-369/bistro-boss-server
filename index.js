@@ -28,6 +28,7 @@ async function run() {
     const menuCollection = client.db("bistroDB").collection("menu");
     const reviewsCollection = client.db("bistroDB").collection("reviews");
     const cartsCollection = client.db("bistroDB").collection("cart");
+    const paymentCollection = client.db("bistroDB").collection("payment");
 
     // custom middleware
     const verifyToken = (req, res, next) => {
@@ -40,6 +41,7 @@ async function run() {
         if (err) {
           return res.status(401).send({ message: "unauthorized access" });
         }
+        // console.log({ decoded });
         req.decoded = decoded;
         next();
       });
@@ -48,8 +50,7 @@ async function run() {
     // use verify admin after verify token
     const verifyAdmin = async (req, res, next) => {
       const email = req.decoded.userInfo;
-      const query = { email: email };
-      const user = await userCollection.findOne(query);
+      const user = await userCollection.findOne({ email });
       const isAdmin = user?.role === "admin";
       if (!isAdmin) {
         return res.status(403).send({ message: "forbidden access" });
@@ -73,19 +74,25 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users/admin/:email", verifyToken, async (req, res) => {
-      const email = req.params.email;
-      if (email !== req.decoded.userInfo) {
-        return res.status(403).send({ message: "forbidden access" });
+    app.get(
+      "/users/admin/:email",
+      verifyToken,
+      verifyAdmin,
+      async (req, res) => {
+        const email = req.params.email;
+        // console.log(email, req.decoded.userInfo);
+        if (email !== req.decoded.userInfo) {
+          return res.status(403).send({ message: "forbidden access" });
+        }
+        const query = { email: email };
+        const user = await userCollection.findOne(query);
+        let admin = false;
+        if (user) {
+          admin = user?.role === "admin";
+        }
+        res.send(admin);
       }
-      const query = { email: email };
-      const user = await userCollection.findOne(query);
-      let admin = false;
-      if (user) {
-        admin = user?.role === "admin";
-      }
-      res.send({ admin });
-    });
+    );
 
     app.post("/users", async (req, res) => {
       const user = req.body;
@@ -189,7 +196,7 @@ async function run() {
     app.post("/create-payment-intent", async (req, res) => {
       const { price } = req.body;
       const amount = parseInt(price * 100);
-      console.log(amount);
+      // console.log(amount);
       const paymentIntents = await stripe.paymentIntents.create({
         amount: amount,
         currency: "usd",
@@ -198,6 +205,30 @@ async function run() {
       res.send({
         clientSecret: paymentIntents.client_secret,
       });
+    });
+
+    app.get("/payments/:email", verifyToken, async (req, res) => {
+      const email = req.params.email;
+      // console.log(req.decoded.userInfo === email);
+      if (email !== req.decoded.userInfo) {
+        return res.status(403).send({ message: "forbidden access" });
+      }
+      const query = { email };
+      const result = await paymentCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.post("/payment", async (req, res) => {
+      const payment = req.body;
+      // console.log("payment info:", payment);
+      const paymentResult = await paymentCollection.insertOne(payment);
+      const filter = {
+        _id: {
+          $in: payment.cartIds.map((id) => new ObjectId(id)),
+        },
+      };
+      const deleteResult = await cartsCollection.deleteMany(filter);
+      res.send({ paymentResult, deleteResult });
     });
 
     // Send a ping to confirm a successful connection
